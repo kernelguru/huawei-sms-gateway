@@ -1,0 +1,13 @@
+# SQLite Datenbank & Server-Daten (enthält sensitive Zugangsdaten & Logs)
+data/
+*.db
+gateway.db
+
+# Python & Docker Cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE / Editor Konfigurationen
+.vscode/
+.idea/
