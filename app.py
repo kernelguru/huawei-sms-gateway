@@ -11,10 +11,11 @@ from flask import Flask, request, jsonify, render_template, session, redirect, u
 from database import init_db, get_settings, save_setting, log_sms, get_logs, save_metric, get_metrics_history
 from huawei_client import HuaweiGateway
 from aiosmtpd.controller import Controller
+from aiosmtpd.smtp import AuthResult, LoginPassword
 
 init_db()
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Kryptografischer Key fuer Cookie-Sessions
+app.secret_key = os.urandom(24)
 
 WEB_PORT = 5000
 SMTP_PORT = 1025
@@ -127,18 +128,16 @@ def api_modem_history():
 def api_logs():
     return jsonify(get_logs(100)), 200
 
-# --- REST & WEBHOOK API (API-KEY GEPRUEFT ODER BROWSER SESSION) ---
+# --- REST & WEBHOOK API ---
 @app.route('/api/v1/sms/send', methods=['POST'])
 def api_send_sms():
     data = request.get_json() or {}
     s = get_settings()
     configured_key = s.get('api_key')
     
-    # 1. Wenn der Aufruf aus einer aktiven Browser-Session kommt: Erlauben ohne Key!
     if session.get('logged_in'):
         pass
     else:
-        # 2. Sonst: Strikte API-Key Prüfung für externe Skripte
         provided_key = request.headers.get('X-API-Key') or data.get('api_key') or request.args.get('api_key')
         if configured_key and provided_key != configured_key:
             return jsonify({'status': 'error', 'message': 'Ungueltiger oder fehlender API-Key'}), 401
@@ -159,7 +158,6 @@ def api_webhook():
     s = get_settings()
     configured_key = s.get('api_key')
 
-    # Externe Webhook Aufrufe muessen einen API-Key mitliefern
     if configured_key and not session.get('logged_in'):
         provided_key = (
             request.headers.get('X-API-Key') 
@@ -196,7 +194,18 @@ def api_webhook():
     success, msg = dispatch_sms(phone, message, 'WEBHOOK')
     return jsonify({'status': 'success' if success else 'error', 'message': msg}), 200 if success else 500
 
-# --- SMTP SERVER HANDLER ---
+# --- ABGESICHERTER SMTP SERVER HANDLER (MIT AUTH) ---
+class Authenticator:
+    def __call__(self, mechanism, login, password):
+        s = get_settings()
+        api_key = s.get('api_key')
+        web_pass = s.get('web_password')
+
+        # Akzeptiert als Passwort entweder den konfigurierten API-Key oder das Web-Passwort
+        if password in [api_key, web_pass] and password != '':
+            return AuthResult(success=True)
+        return AuthResult(success=False, handled=True)
+
 class SMTPSMSHandler:
     async def handle_DATA(self, server, session, envelope):
         msg = message_from_bytes(envelope.content)
@@ -222,7 +231,17 @@ class SMTPSMSHandler:
 def run_smtp_server():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    controller = Controller(SMTPSMSHandler(), hostname='0.0.0.0', port=SMTP_PORT)
+    
+    # SMTP-Authentifizierung aktivieren
+    handler = SMTPSMSHandler()
+    controller = Controller(
+        handler, 
+        hostname='0.0.0.0', 
+        port=SMTP_PORT, 
+        authenticator=Authenticator(),
+        auth_required=True,
+        auth_require_tls=False
+    )
     controller.start()
     loop.run_forever()
 

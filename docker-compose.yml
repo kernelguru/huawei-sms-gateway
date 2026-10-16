@@ -5,6 +5,8 @@ services:
     build: .
     container_name: huawei_sms_gateway
     restart: unless-stopped
+    environment:
+      - TZ=Europe/Berlin
     ports:
       - "5000:5000"   # Webinterface, REST API & Webhook
       - "1025:1025"   # Async SMTP Server

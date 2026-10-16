@@ -156,38 +156,51 @@
                     </div>
                 </div>
 
-                <!-- API, Webhook & SMTP Doku -->
+                <!-- API, Webhook & SMTP Doku (AKTUALISIERT) -->
                 <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl space-y-4">
                     <h2 class="text-md font-semibold flex items-center gap-2 border-b border-slate-700 pb-2">
                         <i class="fa-solid fa-book text-indigo-400"></i> Schnittstellen & API Dokumentation
                     </h2>
                     
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- REST API -->
                         <div class="bg-slate-900 p-3 rounded border border-slate-700">
-                            <h3 class="font-semibold text-xs text-indigo-400 mb-1"><i class="fa-solid fa-code"></i> REST API</h3>
+                            <h3 class="font-semibold text-xs text-indigo-400 mb-1 flex items-center gap-1">
+                                <i class="fa-solid fa-code"></i> REST API (Auth)
+                            </h3>
                             <p class="text-[11px] text-slate-400 mb-1">POST `/api/v1/sms/send`</p>
                             <code class="block bg-slate-950 p-2 rounded text-[10px] text-green-400 font-mono overflow-x-auto">
                                 Header: X-API-Key: KEY<br>
                                 Body: {"to": "+4917...", "message": "Text"}
                             </code>
+                            <p class="text-[10px] text-slate-500 mt-1">Gesperrt ohne X-API-Key Header oder URL-Parameter.</p>
                         </div>
 
+                        <!-- WEBHOOK (Uptime Kuma) -->
                         <div class="bg-slate-900 p-3 rounded border border-slate-700">
-                            <h3 class="font-semibold text-xs text-indigo-400 mb-1"><i class="fa-solid fa-bolt"></i> Webhook Endpoint</h3>
+                            <h3 class="font-semibold text-xs text-indigo-400 mb-1 flex items-center gap-1">
+                                <i class="fa-solid fa-bolt"></i> Webhook (Uptime Kuma)
+                            </h3>
                             <p class="text-[11px] text-slate-400 mb-1">POST `/api/v1/webhook`</p>
                             <code class="block bg-slate-950 p-2 rounded text-[10px] text-amber-400 font-mono overflow-x-auto">
                                 URL: /api/v1/webhook?api_key=KEY<br>
-                                Body: {"message": "Alarm"}
+                                Body: {"msg": "Server DOWN"}
                             </code>
+                            <p class="text-[10px] text-slate-500 mt-1">Verwendet Fallback-Nummer, falls "to" nicht angegeben ist.</p>
                         </div>
 
+                        <!-- SMTP SERVER -->
                         <div class="bg-slate-900 p-3 rounded border border-slate-700">
-                            <h3 class="font-semibold text-xs text-indigo-400 mb-1"><i class="fa-solid fa-envelope"></i> SMTP Server</h3>
-                            <p class="text-[11px] text-slate-400 mb-1">Port 1025 (Keine Auth)</p>
+                            <h3 class="font-semibold text-xs text-indigo-400 mb-1 flex items-center gap-1">
+                                <i class="fa-solid fa-envelope"></i> SMTP Server (Auth)
+                            </h3>
+                            <p class="text-[11px] text-slate-400 mb-1">Port 1025 (SMTP-AUTH)</p>
                             <code class="block bg-slate-950 p-2 rounded text-[10px] text-sky-400 font-mono overflow-x-auto">
-                                An: +49170...@sms.local<br>
-                                Oder: alert@sms.local
+                                User: admin<br>
+                                Pass: API-Key / Web-Pass<br>
+                                An: +49170...@sms.local
                             </code>
+                            <p class="text-[10px] text-slate-500 mt-1">E-Mails ohne Auth werden mit Error 535 verworfen.</p>
                         </div>
                     </div>
                 </div>
@@ -337,7 +350,6 @@
             const message = document.getElementById('sms-message').value;
             const fb = document.getElementById('sms-feedback');
 
-            // Sendet direkt ueber die Browser Session! Keinen API-Key im Frontend nötig!
             const res = await fetch('/api/v1/sms/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
