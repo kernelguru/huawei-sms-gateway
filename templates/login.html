@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Huawei 5G CPE Gateway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full bg-slate-800 p-8 rounded-xl border border-slate-700 shadow-2xl">
+        <div class="text-center mb-6">
+            <i class="fa-solid fa-tower-cell text-4xl text-indigo-500 mb-2"></i>
+            <h1 class="text-xl font-bold">Huawei SMS Gateway</h1>
+            <p class="text-xs text-slate-400">Bitte mit Admin-Passwort anmelden</p>
+        </div>
+
+        <form onsubmit="doLogin(event)">
+            <div class="mb-4">
+                <label class="block text-xs text-slate-400 mb-1">Passwort</label>
+                <input type="password" id="login-pass" required placeholder="Standard: admin" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white focus:border-indigo-500 focus:outline-none text-sm">
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-lg transition-colors text-sm">Anmelden</button>
+        </form>
+        <div id="login-err" class="mt-4 text-xs text-center text-red-400 hidden p-2 bg-red-500/10 rounded border border-red-500/20"></div>
+    </div>
+
+    <script>
+        async function doLogin(e) {
+            e.preventDefault();
+            const pass = document.getElementById('login-pass').value;
+            const errDiv = document.getElementById('login-err');
+            errDiv.classList.add('hidden');
+
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ password: pass })
+            });
+
+            if (res.ok) {
+                window.location.href = '/';
+            } else {
+                errDiv.classList.remove('hidden');
+                errDiv.innerText = "Falsches Passwort!";
+            }
+        }
+    </script>
+</body>
+</html>

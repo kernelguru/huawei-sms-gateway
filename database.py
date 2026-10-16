@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sqlite3
 import os
 
@@ -8,7 +9,7 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # Einstellungen
+    # Einstellungen (Router, Web-Passwort, API-Key, Fallback-Nummer)
     c.execute('''
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -29,7 +30,7 @@ def init_db():
         )
     ''')
 
-    # Signal-Verlauf fuer Grafiken / Logging
+    # Signal-Verlauf fuer Grafiken
     c.execute('''
         CREATE TABLE IF NOT EXISTS signal_metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,12 +44,14 @@ def init_db():
         )
     ''')
 
+    # Standard-Werte setzen
     defaults = {
         'router_url': 'http://192.168.8.1/',
         'router_user': 'admin',
         'router_password': '',
         'default_phone': '',
-        'api_key': 'MeinGeheimerApiKey123'
+        'api_key': 'MeinGeheimerApiKey123',
+        'web_password': 'admin'  # Standard Web-Login Passwort
     }
     for k, v in defaults.items():
         c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (k, v))
@@ -63,7 +66,6 @@ def save_metric(rsrp, rsrq, sinr, rssi, ca_active, band):
         INSERT INTO signal_metrics (rsrp, rsrq, sinr, rssi, ca_active, band)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', (rsrp, rsrq, sinr, rssi, 1 if ca_active else 0, band))
-    # Altes Log nach 24h aufräumen
     c.execute("DELETE FROM signal_metrics WHERE timestamp < datetime('now', '-24 hours')")
     conn.commit()
     conn.close()
@@ -75,7 +77,7 @@ def get_metrics_history(limit=60):
     c.execute('SELECT * FROM signal_metrics ORDER BY timestamp DESC LIMIT ?', (limit,))
     rows = [dict(row) for row in c.fetchall()]
     conn.close()
-    return list(reversed(rows)) # Umgedreht für korrekte Zeitachse von links nach rechts
+    return list(reversed(rows))
 
 def get_settings():
     conn = sqlite3.connect(DB_FILE)

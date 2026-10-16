@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
+import ast
 import time
 import asyncio
 import threading
+from functools import wraps
 from email import message_from_bytes
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 
 from database import init_db, get_settings, save_setting, log_sms, get_logs, save_metric, get_metrics_history
 from huawei_client import HuaweiGateway
@@ -12,9 +14,21 @@ from aiosmtpd.controller import Controller
 
 init_db()
 app = Flask(__name__)
+app.secret_key = os.urandom(24)  # Kryptografischer Key fuer Cookie-Sessions
 
 WEB_PORT = 5000
 SMTP_PORT = 1025
+
+# --- AUTH DECORATOR FUER WEB DASHBOARD ---
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            if request.path.startswith('/api/'):
+                return jsonify({'status': 'error', 'message': 'Nicht eingeloggt'}), 401
+            return redirect(url_for('login_page'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 def dispatch_sms(phone, message, source):
     settings = get_settings()
@@ -53,17 +67,37 @@ def signal_poller_thread():
             pass
         time.sleep(15)
 
-# --- ROUTES ---
+# --- LOGIN & LOGOUT ROUTES ---
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form
+        password = data.get('password')
+        s = get_settings()
+        if password and password == s.get('web_password'):
+            session['logged_in'] = True
+            return jsonify({'status': 'success'}), 200
+        return jsonify({'status': 'error', 'message': 'Falsches Passwort'}), 401
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login_page'))
+
+# --- PROTECTED WEB DASHBOARD ROUTES ---
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
 @app.route('/api/v1/settings', methods=['GET', 'POST'])
+@login_required
 def api_settings():
     if request.method == 'POST':
         data = request.get_json() or {}
-        for key in ['router_url', 'router_user', 'router_password', 'default_phone', 'api_key']:
-            if key in data:
+        for key in ['router_url', 'router_user', 'router_password', 'default_phone', 'api_key', 'web_password']:
+            if key in data and data[key] != '':
                 save_setting(key, data[key])
         return jsonify({'status': 'success', 'message': 'Einstellungen gespeichert'}), 200
 
@@ -77,32 +111,41 @@ def api_settings():
     }), 200
 
 @app.route('/api/v1/modem/status', methods=['GET'])
+@login_required
 def api_modem_status():
     s = get_settings()
     status = HuaweiGateway.get_modem_status(s.get('router_url'), s.get('router_user'), s.get('router_password'))
     return jsonify(status), 200
 
 @app.route('/api/v1/modem/history', methods=['GET'])
+@login_required
 def api_modem_history():
     return jsonify(get_metrics_history(60)), 200
 
 @app.route('/api/v1/logs', methods=['GET'])
+@login_required
 def api_logs():
     return jsonify(get_logs(100)), 200
 
+# --- REST & WEBHOOK API (API-KEY GEPRUEFT ODER BROWSER SESSION) ---
 @app.route('/api/v1/sms/send', methods=['POST'])
 def api_send_sms():
     data = request.get_json() or {}
     s = get_settings()
-    source = data.get('source', 'API')
+    configured_key = s.get('api_key')
     
-    if source != 'WEB':
-        provided_key = request.headers.get('X-API-Key') or data.get('api_key')
-        if s.get('api_key') and provided_key != s.get('api_key'):
-            return jsonify({'status': 'error', 'message': 'Ungueltiger API-Key'}), 401
+    # 1. Wenn der Aufruf aus einer aktiven Browser-Session kommt: Erlauben ohne Key!
+    if session.get('logged_in'):
+        pass
+    else:
+        # 2. Sonst: Strikte API-Key Prüfung für externe Skripte
+        provided_key = request.headers.get('X-API-Key') or data.get('api_key') or request.args.get('api_key')
+        if configured_key and provided_key != configured_key:
+            return jsonify({'status': 'error', 'message': 'Ungueltiger oder fehlender API-Key'}), 401
 
     phone = data.get('to')
     message = data.get('message') or data.get('text')
+    source = 'WEB' if session.get('logged_in') else 'API'
     
     if not message:
         return jsonify({'status': 'error', 'message': 'Nachrichteninhalt ("message") fehlt'}), 400
@@ -113,13 +156,47 @@ def api_send_sms():
 @app.route('/api/v1/webhook', methods=['POST'])
 def api_webhook():
     data = request.get_json(force=True, silent=True) or {}
+    s = get_settings()
+    configured_key = s.get('api_key')
+
+    # Externe Webhook Aufrufe muessen einen API-Key mitliefern
+    if configured_key and not session.get('logged_in'):
+        provided_key = (
+            request.headers.get('X-API-Key') 
+            or data.get('api_key') 
+            or request.args.get('api_key')
+        )
+        if provided_key != configured_key:
+            return jsonify({'status': 'error', 'message': 'Ungueltiger oder fehlender API-Key'}), 401
+
     phone = data.get('to') or data.get('phone') or data.get('number')
-    message = data.get('message') or data.get('text') or data.get('summary') or data.get('description') or str(data)
+    message = None
+    
+    if 'msg' in data:
+        raw_msg = data['msg']
+        if isinstance(raw_msg, str) and raw_msg.startswith('{') and 'msg' in raw_msg:
+            try:
+                parsed_dict = ast.literal_eval(raw_msg)
+                if isinstance(parsed_dict, dict) and 'msg' in parsed_dict:
+                    message = parsed_dict['msg']
+            except Exception:
+                pass
+        if not message:
+            message = str(raw_msg)
+
+    if not message and 'monitor' in data and isinstance(data['monitor'], dict):
+        monitor_name = data['monitor'].get('name', 'Dienst')
+        status = "DOWN ??" if data.get('heartbeat', {}).get('status') == 0 else "UP ??"
+        msg_text = data.get('heartbeat', {}).get('msg', '')
+        message = f"Uptime Kuma: {monitor_name} ist {status}. ({msg_text})"
+
+    if not message:
+        message = data.get('text') or data.get('summary') or data.get('description') or str(data)
 
     success, msg = dispatch_sms(phone, message, 'WEBHOOK')
     return jsonify({'status': 'success' if success else 'error', 'message': msg}), 200 if success else 500
 
-# --- SMTP HANDLER ---
+# --- SMTP SERVER HANDLER ---
 class SMTPSMSHandler:
     async def handle_DATA(self, server, session, envelope):
         msg = message_from_bytes(envelope.content)

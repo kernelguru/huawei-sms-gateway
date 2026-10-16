@@ -20,7 +20,6 @@ class HuaweiGateway:
 
     @staticmethod
     def parse_signal_val(val_str):
-        """Extrahiert Zahlenwert zuverlaessig aus Strings wie '-85dBm' oder '12dB'"""
         if not val_str:
             return None
         match = re.search(r'(-?\d+)', str(val_str))
@@ -37,22 +36,15 @@ class HuaweiGateway:
                 signal = client.device.signal()
                 status_info = client.monitoring.status()
 
-                # Carrier Aggregation (CA) Erkennung
                 ca_active = False
                 scell_info = signal.get('scell_info') or signal.get('pcell_info')
                 if scell_info or signal.get('ca_state') == '1' or '+' in str(status_info.get('CurrentNetworkTypeEx', '')):
                     ca_active = True
 
-                # Signalwerte parsen
-                rsrp_raw = signal.get('rsrp')
-                rsrq_raw = signal.get('rsrq')
-                sinr_raw = signal.get('sinr')
-                rssi_raw = signal.get('rssi')
-
-                rsrp_val = HuaweiGateway.parse_signal_val(rsrp_raw)
-                rsrq_val = HuaweiGateway.parse_signal_val(rsrq_raw)
-                sinr_val = HuaweiGateway.parse_signal_val(sinr_raw)
-                rssi_val = HuaweiGateway.parse_signal_val(rssi_raw)
+                rsrp_val = HuaweiGateway.parse_signal_val(signal.get('rsrp'))
+                rsrq_val = HuaweiGateway.parse_signal_val(signal.get('rsrq'))
+                sinr_val = HuaweiGateway.parse_signal_val(signal.get('sinr'))
+                rssi_val = HuaweiGateway.parse_signal_val(signal.get('rssi'))
 
                 return {
                     'online': True,
@@ -61,10 +53,10 @@ class HuaweiGateway:
                     'band': str(signal.get('band') or signal.get('workmode') or 'N/A'),
                     'cell_id': str(signal.get('cell_id') or 'N/A'),
                     'carrier_aggregation': ca_active,
-                    'rsrp': rsrp_val if rsrp_val is not None else (rsrp_raw or 'N/A'),
-                    'rsrq': rsrq_val if rsrq_val is not None else (rsrq_raw or 'N/A'),
-                    'rssi': rssi_val if rssi_val is not None else (rssi_raw or 'N/A'),
-                    'sinr': sinr_val if sinr_val is not None else (sinr_raw or 'N/A')
+                    'rsrp': rsrp_val if rsrp_val is not None else (signal.get('rsrp') or 'N/A'),
+                    'rsrq': rsrq_val if rsrq_val is not None else (signal.get('rsrq') or 'N/A'),
+                    'rssi': rssi_val if rssi_val is not None else (signal.get('rssi') or 'N/A'),
+                    'sinr': sinr_val if sinr_val is not None else (signal.get('sinr') or 'N/A')
                 }
         except Exception as e:
             return {'online': False, 'error': str(e)}
